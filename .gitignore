@@ -1,5 +1,8 @@
 _bmad/config.user.toml
 _bmad/custom/config.user.toml
+_bmad/
+_bmad-output/
+.agents/
 
 node_modules/
 dist/
