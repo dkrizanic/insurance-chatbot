@@ -1,0 +1,31 @@
+{
+  "name": "croatian-insurance-chatbot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx backend/node_gateway/server.ts",
+    "dev": "concurrently \"npm:dev:ai\" \"npm:dev:node\" \"npm:dev:web\"",
+    "dev:ai": "python -m uvicorn backend.ai_service.app.main:app --host 127.0.0.1 --port 8000 --reload",
+    "dev:node": "tsx watch backend/node_gateway/server.ts",
+    "dev:web": "vite --config frontend/vite.config.ts --host 127.0.0.1",
+    "build": "tsc -p frontend/tsconfig.json --noEmit && vite build --config frontend/vite.config.ts",
+    "rag:ingest": "python -m backend.ai_service.app.ingest"
+  },
+  "dependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.9.1",
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "concurrently": "^9.2.1",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "http-proxy-middleware": "^4.0.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "tsx": "^4.22.3",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.14"
+  }
+}

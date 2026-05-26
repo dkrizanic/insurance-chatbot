@@ -1,0 +1,82 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "create_complaint",
+      "description": "Create a Croatian insurance complaint/prigovor intake record for follow-up.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "type": "string",
+            "description": "Insurance category, e.g. auto, property, travel, health, life, liability."
+          },
+          "insurer": {
+            "type": "string",
+            "description": "Insurance company name, if known."
+          },
+          "policyNumber": {
+            "type": "string",
+            "description": "Policy or claim number, if known."
+          },
+          "issue": {
+            "type": "string",
+            "description": "Short description of the problem."
+          },
+          "desiredOutcome": {
+            "type": "string",
+            "description": "What the user wants from the insurer."
+          },
+          "customerName": {
+            "type": "string",
+            "description": "Customer name, if provided."
+          },
+          "contact": {
+            "type": "string",
+            "description": "Email or phone, if provided."
+          }
+        },
+        "required": ["category", "issue", "desiredOutcome"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "create_policy_request",
+      "description": "Create a new insurance policy request across categories for human follow-up.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "type": "string",
+            "description": "Insurance category, e.g. auto, property, travel, health, life, liability."
+          },
+          "customerName": {
+            "type": "string",
+            "description": "Customer name, if provided."
+          },
+          "contact": {
+            "type": "string",
+            "description": "Email or phone, if provided."
+          },
+          "coverageNeed": {
+            "type": "string",
+            "description": "What needs to be insured and desired coverage."
+          },
+          "startDate": {
+            "type": "string",
+            "description": "Requested start date, if known."
+          },
+          "notes": {
+            "type": "string",
+            "description": "Extra notes or constraints."
+          }
+        },
+        "required": ["category", "coverageNeed"]
+      }
+    }
+  }
+]

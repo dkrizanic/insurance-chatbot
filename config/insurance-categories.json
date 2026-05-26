@@ -1,0 +1,38 @@
+[
+  {
+    "id": "auto",
+    "name": "Auto osiguranje",
+    "examples": ["AO", "kasko", "prometna steta", "regres"],
+    "documents": ["polica", "prometni zapisnik ili europsko izvjesce", "fotografije", "procjena stete"]
+  },
+  {
+    "id": "property",
+    "name": "Imovina",
+    "examples": ["stan", "kuca", "poplava", "pozar", "provala"],
+    "documents": ["polica", "fotografije stete", "racuni ili ponude", "zapisnik nadleznih sluzbi"]
+  },
+  {
+    "id": "travel",
+    "name": "Putno osiguranje",
+    "examples": ["otkaz putovanja", "lijecenje u inozemstvu", "prtljaga"],
+    "documents": ["polica", "medicinska dokumentacija", "racuni", "dokaz putovanja"]
+  },
+  {
+    "id": "health",
+    "name": "Zdravstveno / dopunsko",
+    "examples": ["odbijen trosak", "refundacija", "dopunsko pokrice"],
+    "documents": ["polica", "nalazi", "racuni", "odluka osiguratelja"]
+  },
+  {
+    "id": "life",
+    "name": "Zivotno osiguranje",
+    "examples": ["isplata", "raskid", "otkup", "korisnik police"],
+    "documents": ["polica", "dokaz identiteta", "zahtjev", "dodatna dokumentacija prema polici"]
+  },
+  {
+    "id": "liability",
+    "name": "Odgovornost",
+    "examples": ["steta trecoj osobi", "profesionalna odgovornost", "privatna odgovornost"],
+    "documents": ["polica", "opis dogadaja", "dokazi o steti", "komunikacija s ostecenikom"]
+  }
+]
