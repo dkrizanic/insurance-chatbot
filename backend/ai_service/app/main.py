@@ -5,11 +5,11 @@ import math
 import os
 import re
 import shutil
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
+import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,13 +20,11 @@ from pypdf import PdfReader
 
 ROOT = Path(__file__).resolve().parents[3]
 CONFIG_DIR = ROOT / "config"
-DATA_DIR = ROOT / "data"
 RAG_DIR = ROOT / "rag"
 PDF_DIR = RAG_DIR / "pdf"
 INDEX_DIR = RAG_DIR / "index"
 CHUNKS_FILE = INDEX_DIR / "chunks.json"
 VECTORS_FILE = INDEX_DIR / "vectors.json"
-REQUESTS_FILE = DATA_DIR / "requests.json"
 
 CHUNK_SIZE = 1200
 OVERLAP = 180
@@ -43,6 +41,7 @@ provider = "openrouter" if is_openrouter or (base_url and "openrouter.ai" in bas
 model = os.getenv("OPENAI_MODEL") or os.getenv("OPENROUTER_MODEL") or (
     "openai/gpt-5.4-mini" if provider == "openrouter" else "gpt-5.4-mini"
 )
+app_api_base_url = os.getenv("APP_API_BASE_URL") or f"http://127.0.0.1:{os.getenv('PORT', '3000')}"
 
 client = OpenAI(api_key=api_key, base_url=base_url)
 
@@ -62,25 +61,6 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: list[ChatMessage]
-
-
-class ComplaintRequest(BaseModel):
-    category: str
-    issue: str
-    desiredOutcome: str
-    insurer: str | None = None
-    policyNumber: str | None = None
-    customerName: str | None = None
-    contact: str | None = None
-
-
-class PolicyRequest(BaseModel):
-    category: str
-    coverageNeed: str
-    customerName: str | None = None
-    contact: str | None = None
-    startDate: str | None = None
-    notes: str | None = None
 
 
 def read_text(relative_path: str) -> str:
@@ -240,41 +220,19 @@ def format_rag_context(results: list[dict[str, Any]]) -> str:
     return "\n\n".join(parts)
 
 
-def read_requests() -> dict[str, list[dict[str, Any]]]:
-    try:
-        return json.loads(REQUESTS_FILE.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return {"complaints": [], "policyRequests": []}
-
-
-def save_requests(data: dict[str, list[dict[str, Any]]]) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    REQUESTS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def make_record(prefix: str, payload: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "id": f"{prefix}-{int(time.time() * 1000):x}",
-        "status": "new",
-        "createdAt": datetime.now(timezone.utc).isoformat(),
-        **payload,
-    }
-
-
-def create_complaint(payload: dict[str, Any]) -> dict[str, Any]:
-    data = read_requests()
-    record = make_record("complaint", payload)
-    data["complaints"].append(record)
-    save_requests(data)
-    return record
-
-
-def create_policy_request(payload: dict[str, Any]) -> dict[str, Any]:
-    data = read_requests()
-    record = make_record("policy", payload)
-    data["policyRequests"].append(record)
-    save_requests(data)
-    return record
+def submit_app_record(kind: Literal["complaint", "policy_request"], payload: dict[str, Any]) -> dict[str, Any]:
+    route = "/api/complaints" if kind == "complaint" else "/api/policies"
+    with httpx.Client(timeout=20.0) as http:
+        response = http.post(
+            f"{app_api_base_url.rstrip('/')}{route}",
+            json=payload,
+            headers={"x-internal-source": "ai-service-tool-call"},
+        )
+    if response.status_code >= 400:
+        detail = f"App API error ({response.status_code}) while creating {kind}."
+        raise HTTPException(status_code=502, detail=detail)
+    body = response.json()
+    return body.get("complaint") or body.get("policyRequest") or body
 
 
 def sanitize_messages(messages: list[ChatMessage]) -> list[dict[str, str]]:
@@ -309,10 +267,10 @@ def is_allowed_conversation(messages: list[dict[str, str]]) -> bool:
 def run_tool_call(tool_call: Any) -> dict[str, Any]:
     args = json.loads(tool_call.function.arguments or "{}")
     if tool_call.function.name == "create_complaint":
-        record = create_complaint(args)
+        record = submit_app_record("complaint", args)
         return {"ok": True, "kind": "complaint", "id": record["id"]}
     if tool_call.function.name == "create_policy_request":
-        record = create_policy_request(args)
+        record = submit_app_record("policy_request", args)
         return {"ok": True, "kind": "policy_request", "id": record["id"]}
     return {"ok": False, "error": "Unknown tool."}
 
@@ -325,21 +283,6 @@ def health() -> dict[str, Any]:
 @app.get("/categories")
 def categories() -> dict[str, Any]:
     return {"categories": INSURANCE_CATEGORIES}
-
-
-@app.get("/requests")
-def requests() -> dict[str, Any]:
-    return read_requests()
-
-
-@app.post("/complaints")
-def complaints(payload: ComplaintRequest) -> dict[str, Any]:
-    return {"complaint": create_complaint(payload.model_dump(exclude_none=True))}
-
-
-@app.post("/policies")
-def policies(payload: PolicyRequest) -> dict[str, Any]:
-    return {"policyRequest": create_policy_request(payload.model_dump(exclude_none=True))}
 
 
 @app.get("/admin/rag/stats")

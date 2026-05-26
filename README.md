@@ -5,8 +5,8 @@ A Croatian insurance assistant with a React UI, Node/TypeScript UI gateway, and 
 ## Architecture
 
 - `frontend/` -- React/Vite application.
-- `backend/node_gateway/` -- Node/TypeScript UI gateway and `/api` proxy.
-- `backend/ai_service/` -- FastAPI AI service: chat, tools, RAG, records, PDF upload/indexing.
+- `backend/node_gateway/` -- Node/TypeScript UI gateway, `/api` proxy, and record write/read APIs.
+- `backend/ai_service/` -- FastAPI AI service: chat, tools, and RAG PDF upload/indexing.
 - `config/` -- assistant prompts, scope classifier, tool schemas, and category data.
 - `rag/pdf/` -- source PDFs.
 - `rag/index/` -- generated chunk/vector index.
@@ -52,7 +52,7 @@ The app now has tabs for:
 
 Records are stored locally in `data/requests.json`.
 
-The chatbot can also create complaint and policy request records through model tool calls. FastAPI executes those tools and stores records locally.
+The chatbot can also create complaint and policy request records through model tool calls. FastAPI executes tools by calling Node app APIs, and Node stores records locally.
 
 ## Configuration
 
