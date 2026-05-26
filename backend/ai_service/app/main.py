@@ -358,7 +358,8 @@ async def admin_rag_upload(pdfs: list[UploadFile] = File(...)) -> dict[str, Any]
         with (PDF_DIR / safe_name).open("wb") as output:
             shutil.copyfileobj(pdf.file, output)
         uploaded.append(safe_name)
-    return {"uploaded": uploaded}
+    index_result = build_rag_index()
+    return {"uploaded": uploaded, "index": index_result}
 
 
 @app.post("/admin/rag/reindex")

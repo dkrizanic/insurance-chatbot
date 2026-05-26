@@ -218,6 +218,12 @@ export default function App() {
     });
     form.reset();
     setNotice(`Učitano: ${data.uploaded.join(", ")}`);
+    const indexed = (data as { index?: { sourceCount: number; chunkCount: number } }).index;
+    if (indexed) {
+      setNotice(
+        `Učitano: ${data.uploaded.join(", ")}. Indeksirano ${indexed.sourceCount} PDF dokumenata u ${indexed.chunkCount} chunkova.`,
+      );
+    }
     await loadRagStats();
   }
 
