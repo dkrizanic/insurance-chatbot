@@ -10,7 +10,8 @@
     "dev:node": "tsx watch backend/node_gateway/server.ts",
     "dev:web": "vite --config frontend/vite.config.ts --host 127.0.0.1",
     "build": "tsc -p frontend/tsconfig.json --noEmit && vite build --config frontend/vite.config.ts",
-    "rag:ingest": "python -m backend.ai_service.app.ingest"
+    "rag:ingest": "python -m backend.ai_service.app.ingest",
+    "test:ai": "python -m pytest backend/ai_service/tests -q"
   },
   "dependencies": {
     "@types/express": "^5.0.6",

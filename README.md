@@ -20,6 +20,7 @@ Copy-Item .env.example .env
 notepad .env
 npm run build
 npm run rag:ingest
+npm run test:ai
 npm run dev
 ```
 

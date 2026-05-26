@@ -5,3 +5,4 @@ python-multipart==0.0.20
 openai==1.58.1
 pypdf==5.1.0
 ftfy==6.3.1
+pytest==8.3.4
