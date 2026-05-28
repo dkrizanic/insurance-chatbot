@@ -124,6 +124,8 @@ def test_chat_includes_rag_context_for_realistic_query(monkeypatch) -> None:
     system_prompt = fake_client.chat.completions.calls[1]["messages"][0]["content"]
     assert "Auto osiguranje.pdf" in system_prompt
     assert "Relevant PDF excerpts" in system_prompt
+    assert "chunk 2" not in system_prompt
+    assert "never mention internal chunk numbers" in system_prompt
 
 
 def test_chat_demo_usage_limit_blocks_extra_requests(monkeypatch) -> None:

@@ -76,6 +76,8 @@ The browser keeps the current tab's chat history in `sessionStorage`, so refresh
 
 For demo runs, FastAPI applies a simple daily chat limit per browser demo ID. Configure it with `DEMO_CHAT_DAILY_LIMIT` in `.env`; the default is `50`, and `0` disables the guard. Counts are kept in memory, so restarting the AI service resets them.
 
+The Admin tab is protected by `ADMIN_PASSWORD_HASH`. The demo default hash is for password `admin`.
+
 ## Current Reference Points
 
 - HANFA consumer guidance says a written complaint to an insurer should receive a response within 15 days.

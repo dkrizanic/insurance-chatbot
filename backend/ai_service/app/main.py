@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import math
 import os
@@ -43,6 +45,10 @@ model = os.getenv("OPENAI_MODEL") or os.getenv("OPENROUTER_MODEL") or (
 )
 app_api_base_url = os.getenv("APP_API_BASE_URL") or f"http://127.0.0.1:{os.getenv('PORT', '3000')}"
 demo_chat_daily_limit = int(os.getenv("DEMO_CHAT_DAILY_LIMIT", "50"))
+admin_password_hash = os.getenv(
+    "ADMIN_PASSWORD_HASH",
+    "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918",
+)
 
 client = OpenAI(api_key=api_key, base_url=base_url)
 
@@ -216,9 +222,12 @@ def search_rag(query: str, top_k: int = 4) -> list[dict[str, Any]]:
 def format_rag_context(results: list[dict[str, Any]]) -> str:
     if not results:
         return ""
-    parts = ["Relevant PDF excerpts. Use only when relevant and cite source filenames in the answer:"]
+    parts = [
+        "Relevant PDF excerpts. Use only when relevant.",
+        "You may mention source filenames when useful, but never mention internal chunk numbers or chunk IDs to the user.",
+    ]
     for index, result in enumerate(results, start=1):
-        parts.append(f"[{index}] Source: {result['source']}, chunk {result['chunk']}\n{result['content']}")
+        parts.append(f"[{index}] Source filename: {result['source']}\n{result['content']}")
     return "\n\n".join(parts)
 
 
@@ -280,6 +289,13 @@ def enforce_demo_chat_limit(request: Request) -> None:
     usage["count"] = count + 1
 
 
+def require_admin(request: Request) -> None:
+    password = request.headers.get("x-admin-password", "")
+    password_hash = hashlib.sha256(password.encode("utf-8")).hexdigest()
+    if not hmac.compare_digest(password_hash, admin_password_hash):
+        raise HTTPException(status_code=401, detail="Admin password is required.")
+
+
 def is_allowed_conversation(messages: list[dict[str, str]]) -> bool:
     latest = next((message for message in reversed(messages) if message["role"] == "user"), None)
     if not latest:
@@ -323,12 +339,14 @@ def categories() -> dict[str, Any]:
 
 
 @app.get("/admin/rag/stats")
-def admin_rag_stats() -> dict[str, Any]:
+def admin_rag_stats(request: Request) -> dict[str, Any]:
+    require_admin(request)
     return rag_stats()
 
 
 @app.post("/admin/rag/upload")
-async def admin_rag_upload(pdfs: list[UploadFile] = File(...)) -> dict[str, Any]:
+async def admin_rag_upload(request: Request, pdfs: list[UploadFile] = File(...)) -> dict[str, Any]:
+    require_admin(request)
     PDF_DIR.mkdir(parents=True, exist_ok=True)
     uploaded = []
     for pdf in pdfs:
@@ -343,12 +361,14 @@ async def admin_rag_upload(pdfs: list[UploadFile] = File(...)) -> dict[str, Any]
 
 
 @app.post("/admin/rag/reindex")
-def admin_rag_reindex() -> dict[str, Any]:
+def admin_rag_reindex(request: Request) -> dict[str, Any]:
+    require_admin(request)
     return build_rag_index()
 
 
 @app.get("/admin/rag/search")
-def admin_rag_search(q: str) -> dict[str, Any]:
+def admin_rag_search(q: str, request: Request) -> dict[str, Any]:
+    require_admin(request)
     return {"results": search_rag(q, 6)}
 
 

@@ -81,6 +81,7 @@ def test_upload_endpoint_auto_reindexes(isolated_rag_workspace: Path) -> None:
     response = client.post(
         "/admin/rag/upload",
         files=[("pdfs", (sample_pdf.name, pdf_bytes, "application/pdf"))],
+        headers={"X-Admin-Password": "admin"},
     )
 
     assert response.status_code == 200
