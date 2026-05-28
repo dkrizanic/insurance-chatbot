@@ -1,4 +1,5 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { jsPDF } from "jspdf";
 import "./styles.css";
 
 type Role = "user" | "assistant";
@@ -27,6 +28,9 @@ type AppRecord = {
   category?: string;
   issue?: string;
   coverageNeed?: string;
+  typeLabel?: string;
+  body?: string;
+  [key: string]: unknown;
 };
 
 type RagStats = {
@@ -55,6 +59,7 @@ class ApiError extends Error {
 
 const storageKey = "osiguranjebot.messages";
 const demoUserKey = "osiguranjebot.demoUserId";
+const adminPasswordKey = "osiguranjebot.adminPassword";
 const maxStoredMessages = 40;
 const starterMessage =
   "Bok. Opišite vrstu osiguranja, što se dogodilo, što je osiguratelj odgovorio i koje rokove ili dokumente imate. Ja ću složiti praktične korake i, po potrebi, otvoriti prigovor ili zahtjev za novu policu.";
@@ -155,6 +160,9 @@ export default function App() {
   const [ragStats, setRagStats] = useState<RagStats | null>(null);
   const [ragResults, setRagResults] = useState<RagResult[]>([]);
   const [notice, setNotice] = useState("");
+  const [adminPassword, setAdminPassword] = useState(() => sessionStorage.getItem(adminPasswordKey) || "");
+  const [adminDraft, setAdminDraft] = useState("");
+  const chatRef = useRef<HTMLElement | null>(null);
 
   const visibleMessages = useMemo(
     () => [{ role: "assistant" as const, content: starterMessage }, ...messages],
@@ -168,8 +176,22 @@ export default function App() {
   useEffect(() => {
     loadCategories();
     loadRecords();
-    loadRagStats();
   }, []);
+
+  useEffect(() => {
+    if (activeView === "admin" && adminPassword) {
+      loadRagStats().catch(() => lockAdmin("Admin lozinka nije ispravna."));
+    }
+  }, [activeView, adminPassword]);
+
+  useEffect(() => {
+    if (activeView !== "chat") return;
+    const chat = chatRef.current;
+    if (!chat) return;
+    requestAnimationFrame(() => {
+      chat.scrollTo({ top: chat.scrollHeight, behavior: "smooth" });
+    });
+  }, [activeView, visibleMessages, loading]);
 
   async function loadCategories() {
     const data = await jsonFetch<{ categories: Category[] }>("/api/categories");
@@ -180,8 +202,13 @@ export default function App() {
     setRecords(await jsonFetch<RecordsPayload>("/api/requests"));
   }
 
-  async function loadRagStats() {
-    setRagStats(await jsonFetch<RagStats>("/api/admin/rag/stats"));
+  function adminHeaders(password = adminPassword): HeadersInit {
+    return { "X-Admin-Password": password };
+  }
+
+  async function loadRagStats(password = adminPassword) {
+    if (!password) return;
+    setRagStats(await jsonFetch<RagStats>("/api/admin/rag/stats", { headers: adminHeaders(password) }));
   }
 
   async function submitChat(event: FormEvent) {
@@ -216,6 +243,18 @@ export default function App() {
     }
   }
 
+  function clearChat() {
+    setMessages([]);
+    setDraft("");
+  }
+
+  function submitOnEnter(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && !event.shiftKey && !loading) {
+      event.preventDefault();
+      event.currentTarget.form?.requestSubmit();
+    }
+  }
+
   async function submitIntake(event: FormEvent<HTMLFormElement>, url: string, success: string) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -235,35 +274,57 @@ export default function App() {
   async function uploadPdfs(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
-    const data = await jsonFetch<{ uploaded: string[] }>("/api/admin/rag/upload", {
-      method: "POST",
-      body: new FormData(form),
-    });
-    form.reset();
-    setNotice(`Učitano: ${data.uploaded.join(", ")}`);
-    const indexed = (data as { index?: { sourceCount: number; chunkCount: number } }).index;
-    if (indexed) {
+    setNotice("Učitavam PDF i gradim indeks...");
+    try {
+      const data = await jsonFetch<{ uploaded: string[] }>("/api/admin/rag/upload", {
+        method: "POST",
+        headers: adminHeaders(),
+        body: new FormData(form),
+      });
+      form.reset();
+      setRagResults([]);
+      const indexed = (data as { index?: { sourceCount: number; chunkCount: number } }).index;
       setNotice(
-        `Učitano: ${data.uploaded.join(", ")}. Indeksirano ${indexed.sourceCount} PDF dokumenata u ${indexed.chunkCount} chunkova.`,
+        indexed
+          ? `Uspješno: ${data.uploaded.join(", ")} je učitan i indeksiran. Ukupno ${indexed.sourceCount} PDF dokumenata i ${indexed.chunkCount} chunkova.`
+          : `Uspješno učitano: ${data.uploaded.join(", ")}.`,
       );
+      await loadRagStats();
+    } catch (error) {
+      setNotice((error as Error).message);
     }
-    await loadRagStats();
-  }
-
-  async function reindexRag() {
-    setNotice("Gradim vektorski indeks...");
-    const data = await jsonFetch<{ sourceCount: number; chunkCount: number }>("/api/admin/rag/reindex", {
-      method: "POST",
-    });
-    setNotice(`Indeksirano ${data.sourceCount} PDF dokumenata u ${data.chunkCount} chunkova.`);
-    await loadRagStats();
   }
 
   async function searchRag(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const query = String(new FormData(event.currentTarget).get("query") || "");
-    const data = await jsonFetch<{ results: RagResult[] }>(`/api/admin/rag/search?q=${encodeURIComponent(query)}`);
+    const data = await jsonFetch<{ results: RagResult[] }>(`/api/admin/rag/search?q=${encodeURIComponent(query)}`, {
+      headers: adminHeaders(),
+    });
     setRagResults(data.results);
+  }
+
+  async function unlockAdmin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const password = adminDraft.trim();
+    try {
+      await loadRagStats(password);
+      sessionStorage.setItem(adminPasswordKey, password);
+      setAdminPassword(password);
+      setAdminDraft("");
+      setNotice("");
+    } catch (error) {
+      setNotice((error as Error).message);
+    }
+  }
+
+  function lockAdmin(message = "") {
+    sessionStorage.removeItem(adminPasswordKey);
+    setAdminPassword("");
+    setAdminDraft("");
+    setRagStats(null);
+    setRagResults([]);
+    setNotice(message);
   }
 
   return (
@@ -294,7 +355,7 @@ export default function App() {
         <section className="workspace">
           {activeView === "chat" && (
             <div className="view active" id="chat-view">
-              <section className="chat" aria-live="polite">
+              <section className="chat" aria-live="polite" ref={chatRef}>
                 {visibleMessages.map((message, index) => (
                   <article className={`message ${message.role}`} key={`${message.role}-${index}`}>
                     <div
@@ -312,11 +373,25 @@ export default function App() {
                 <textarea
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
+                  onKeyDown={submitOnEnter}
                   rows={3}
                   placeholder="Primjer: Croatia osiguranje odbilo mi je isplatu za prometnu štetu jer kažu da nedostaje dokaz..."
                   required
                 />
-                <button type="submit" disabled={loading}>{loading ? "Thinking" : "Send"}</button>
+                <div className="composer-actions">
+                  <button type="button" className="secondary-button" onClick={clearChat} disabled={loading || (!messages.length && !draft)}>
+                    Očisti chat
+                  </button>
+                  <button type="submit" disabled={loading}>
+                    {loading ? (
+                      <span className="thinking-dots" aria-label="Tražim odgovor">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                      </span>
+                    ) : "Send"}
+                  </button>
+                </div>
               </form>
             </div>
           )}
@@ -376,33 +451,41 @@ export default function App() {
 
           {activeView === "admin" && (
             <div className="view active padded">
-              <section className="admin-layout">
-                <form className="intake-form" onSubmit={uploadPdfs}>
-                  <label>PDF dokumenti za RAG<input name="pdfs" type="file" accept="application/pdf,.pdf" multiple required /></label>
-                  <button type="submit">Učitaj PDF</button>
+              {!adminPassword ? (
+                <form className="intake-form admin-login" onSubmit={unlockAdmin}>
+                  <label>Admin lozinka<input type="password" value={adminDraft} onChange={(event) => setAdminDraft(event.target.value)} autoComplete="current-password" required /></label>
+                  <button type="submit">Otključaj Admin</button>
+                  <p className="form-result">{notice}</p>
                 </form>
-                <div className="admin-actions">
-                  <button type="button" onClick={reindexRag}>Izgradi vektorski indeks</button>
-                  <button type="button" onClick={loadRagStats}>Osvježi status</button>
-                </div>
-                <p className="form-result">{notice}</p>
-                {ragStats && <RagStatsCard stats={ragStats} />}
-                <form className="intake-form" onSubmit={searchRag}>
-                  <label>Test pretraga dokumenata<input name="query" placeholder="npr. isključenja kod auto osiguranja" required /></label>
-                  <button type="submit">Pretraži</button>
-                </form>
-                <div className="records-list">
-                  {ragResults.map((result) => (
-                    <article className="record-row rag-result" key={`${result.source}-${result.chunk}`}>
-                      <div>
-                        <strong>{result.source} · chunk {result.chunk}</strong>
-                        <p>{result.content.slice(0, 420)}</p>
-                      </div>
-                      <span>{result.score.toFixed(2)}</span>
-                    </article>
-                  ))}
-                </div>
-              </section>
+              ) : (
+                <section className="admin-layout">
+                  <form className="intake-form" onSubmit={uploadPdfs}>
+                    <label>PDF dokumenti za RAG<input name="pdfs" type="file" accept="application/pdf,.pdf" multiple required /></label>
+                    <button type="submit">Učitaj PDF</button>
+                  </form>
+                  <div className="admin-actions">
+                    <button type="button" onClick={() => loadRagStats()}>Osvježi status</button>
+                    <button type="button" className="secondary-button" onClick={() => lockAdmin()}>Zaključaj Admin</button>
+                  </div>
+                  <p className="form-result">{notice}</p>
+                  {ragStats && <RagStatsCard stats={ragStats} />}
+                  <form className="intake-form" onSubmit={searchRag}>
+                    <label>Test pretraga dokumenata<input name="query" placeholder="npr. isključenja kod auto osiguranja" required /></label>
+                    <button type="submit">Pretraži</button>
+                  </form>
+                  <div className="records-list">
+                    {ragResults.map((result) => (
+                      <article className="record-row rag-result" key={`${result.source}-${result.chunk}`}>
+                        <div>
+                          <strong>{result.source} · chunk {result.chunk}</strong>
+                          <p>{result.content.slice(0, 420)}</p>
+                        </div>
+                        <span>{result.score.toFixed(2)}</span>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              )}
             </div>
           )}
         </section>
@@ -424,25 +507,156 @@ function CategorySelect({ categories }: { categories: Category[] }) {
 }
 
 function Records({ records }: { records: RecordsPayload }) {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const rows = [
     ...records.complaints.map((record) => ({ ...record, typeLabel: "Prigovor", body: record.issue })),
     ...records.policyRequests.map((record) => ({ ...record, typeLabel: "Nova polica", body: record.coverageNeed })),
   ].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  const selectedRecord = rows.find((record) => record.id === selectedId) || null;
+
+  useEffect(() => {
+    if (selectedId && !selectedRecord) {
+      setSelectedId(null);
+    }
+  }, [selectedId, selectedRecord]);
 
   if (!rows.length) return <p className="empty">Još nema spremljenih predmeta.</p>;
   return (
-    <div className="records-list">
-      {rows.map((record) => (
-        <article className="record-row" key={record.id}>
-          <div>
-            <strong>{record.typeLabel} · {record.category || "bez kategorije"}</strong>
-            <p>{record.body}</p>
-          </div>
-          <span>{record.status}</span>
-        </article>
-      ))}
+    <div className="records-layout">
+      <div className="records-list">
+        {rows.map((record) => (
+          <article className="record-row" key={record.id}>
+            <div>
+              <strong>{record.typeLabel} · {record.category || "bez kategorije"}</strong>
+              <p>{record.body}</p>
+            </div>
+            <div className="record-actions">
+              <span>{record.status}</span>
+              <button type="button" onClick={() => setSelectedId(record.id)}>
+                Otvori
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+      {selectedRecord && <RecordDetails record={selectedRecord} onClose={() => setSelectedId(null)} />}
     </div>
   );
+}
+
+function RecordDetails({ record, onClose }: { record: AppRecord; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const hiddenFields = new Set(["body", "typeLabel"]);
+  const fields = Object.entries(record).filter(
+    ([key, value]) => !hiddenFields.has(key) && value !== undefined && value !== null && String(value).trim() !== "",
+  );
+
+  async function copySummary() {
+    await navigator.clipboard.writeText(formatRecordSummary(record));
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+  }
+
+  function downloadPdf() {
+    const pdf = new jsPDF();
+    const margin = 16;
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const maxWidth = pageWidth - margin * 2;
+    let y = 18;
+
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(16);
+    pdf.text("OsiguranjeBot predmet", margin, y);
+    y += 10;
+
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(11);
+    formatRecordSummary(record).split("\n").forEach((line) => {
+      const wrapped = pdf.splitTextToSize(line, maxWidth);
+      wrapped.forEach((textLine: string) => {
+        if (y > pageHeight - margin) {
+          pdf.addPage();
+          y = margin;
+        }
+        pdf.text(textLine, margin, y);
+        y += 7;
+      });
+      y += 2;
+    });
+
+    pdf.save(`${record.id || "predmet"}.pdf`);
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <article
+        className="record-details"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="record-details-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="record-details-header">
+          <div>
+            <p className="eyebrow">{record.typeLabel || "Predmet"}</p>
+            <h2 id="record-details-title">{record.category || "Bez kategorije"}</h2>
+          </div>
+          <div className="record-detail-actions">
+            <button type="button" onClick={copySummary}>{copied ? "Kopirano" : "Kopiraj sažetak"}</button>
+            <button type="button" onClick={downloadPdf}>Preuzmi PDF</button>
+            <button type="button" onClick={onClose} aria-label="Zatvori detalje">Zatvori</button>
+          </div>
+        </div>
+        <dl>
+          {fields.map(([key, value]) => (
+            <div key={key}>
+              <dt>{recordFieldLabel(key)}</dt>
+              <dd>{String(value)}</dd>
+            </div>
+          ))}
+        </dl>
+      </article>
+    </div>
+  );
+}
+
+function formatRecordSummary(record: AppRecord) {
+  const lines = [
+    `${record.typeLabel || "Predmet"}: ${record.category || "bez kategorije"}`,
+    `Status: ${record.status}`,
+    `ID: ${record.id}`,
+    record.createdAt ? `Kreirano: ${record.createdAt}` : "",
+    record.insurer ? `Osiguratelj: ${record.insurer}` : "",
+    record.policyNumber ? `Broj police ili štete: ${record.policyNumber}` : "",
+    record.issue ? `Problem: ${record.issue}` : "",
+    record.desiredOutcome ? `Željeni ishod: ${record.desiredOutcome}` : "",
+    record.coverageNeed ? `Što želite osigurati: ${record.coverageNeed}` : "",
+    record.startDate ? `Početak police: ${record.startDate}` : "",
+    record.customerName ? `Ime i prezime: ${record.customerName}` : "",
+    record.contact ? `Kontakt: ${record.contact}` : "",
+    record.notes ? `Napomene: ${record.notes}` : "",
+  ];
+  return lines.filter(Boolean).join("\n");
+}
+
+function recordFieldLabel(key: string) {
+  const labels: Record<string, string> = {
+    id: "ID",
+    status: "Status",
+    createdAt: "Kreirano",
+    category: "Kategorija",
+    insurer: "Osiguratelj",
+    policyNumber: "Broj police ili štete",
+    issue: "Problem",
+    desiredOutcome: "Željeni ishod",
+    coverageNeed: "Što želite osigurati",
+    startDate: "Početak police",
+    customerName: "Ime i prezime",
+    contact: "Kontakt",
+    notes: "Napomene",
+  };
+  return labels[key] || key;
 }
 
 function RagStatsCard({ stats }: { stats: RagStats }) {
