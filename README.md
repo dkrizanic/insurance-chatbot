@@ -72,6 +72,10 @@ The `Admin` tab can upload more PDF files, rebuild the local vector index, inspe
 
 The browser keeps the current tab's chat history in `sessionStorage`, so refreshes keep the conversation context. Each request sends recent messages to FastAPI, which forwards the latest messages to the model.
 
+## Demo Usage Limit
+
+For demo runs, FastAPI applies a simple daily chat limit per browser demo ID. Configure it with `DEMO_CHAT_DAILY_LIMIT` in `.env`; the default is `50`, and `0` disables the guard. Counts are kept in memory, so restarting the AI service resets them.
+
 ## Current Reference Points
 
 - HANFA consumer guidance says a written complaint to an insurer should receive a response within 15 days.

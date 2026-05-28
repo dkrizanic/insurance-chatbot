@@ -124,3 +124,22 @@ def test_chat_includes_rag_context_for_realistic_query(monkeypatch) -> None:
     system_prompt = fake_client.chat.completions.calls[1]["messages"][0]["content"]
     assert "Auto osiguranje.pdf" in system_prompt
     assert "Relevant PDF excerpts" in system_prompt
+
+
+def test_chat_demo_usage_limit_blocks_extra_requests(monkeypatch) -> None:
+    fake_client = FakeOpenAIClient([_response("ALLOW"), _response("Prvi odgovor.")])
+    monkeypatch.setattr(main, "client", fake_client)
+    monkeypatch.setattr(main, "api_key", "test-key")
+    monkeypatch.setattr(main, "demo_chat_daily_limit", 1)
+    main.chat_usage.clear()
+
+    api = TestClient(main.app)
+    payload = {"messages": [{"role": "user", "content": "Kako prijaviti stetu iz police?"}]}
+    headers = {"X-Demo-User-Id": "demo-browser-1"}
+
+    first_response = api.post("/chat", json=payload, headers=headers)
+    second_response = api.post("/chat", json=payload, headers=headers)
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 429
+    assert "Demo limit dosegnut" in second_response.json()["detail"]

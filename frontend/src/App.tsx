@@ -44,10 +44,29 @@ type RagResult = {
   content: string;
 };
 
+class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
 const storageKey = "osiguranjebot.messages";
+const demoUserKey = "osiguranjebot.demoUserId";
 const maxStoredMessages = 40;
 const starterMessage =
   "Bok. Opišite vrstu osiguranja, što se dogodilo, što je osiguratelj odgovorio i koje rokove ili dokumente imate. Ja ću složiti praktične korake i, po potrebi, otvoriti prigovor ili zahtjev za novu policu.";
+
+function getDemoUserId() {
+  let userId = localStorage.getItem(demoUserKey);
+  if (!userId) {
+    userId = crypto.randomUUID();
+    localStorage.setItem(demoUserKey, userId);
+  }
+  return userId;
+}
 
 function renderMarkdown(text: string) {
   const escape = (value: string) =>
@@ -115,7 +134,7 @@ async function jsonFetch<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, options);
   const data = await response.json();
   if (!response.ok) {
-    throw new Error(data.detail || data.error || "Request failed.");
+    throw new ApiError(data.detail || data.error || "Request failed.", response.status);
   }
   return data;
 }
@@ -178,15 +197,19 @@ export default function App() {
     try {
       const data = await jsonFetch<{ reply: string }>("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Demo-User-Id": getDemoUserId() },
         body: JSON.stringify({ messages: nextMessages }),
       });
       setMessages([...nextMessages, { role: "assistant", content: data.reply }]);
       await loadRecords();
     } catch (error) {
+      const message =
+        error instanceof ApiError && error.status === 429
+          ? error.message
+          : `Ne mogu trenutno dobiti odgovor. ${(error as Error).message}`;
       setMessages([
         ...nextMessages,
-        { role: "assistant", content: `Ne mogu trenutno dobiti odgovor. ${(error as Error).message}` },
+        { role: "assistant", content: message },
       ]);
     } finally {
       setLoading(false);

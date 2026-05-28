@@ -11,7 +11,7 @@ from typing import Any, Literal
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from ftfy import fix_text
 from openai import OpenAI
@@ -42,6 +42,7 @@ model = os.getenv("OPENAI_MODEL") or os.getenv("OPENROUTER_MODEL") or (
     "openai/gpt-5.4-mini" if provider == "openrouter" else "gpt-5.4-mini"
 )
 app_api_base_url = os.getenv("APP_API_BASE_URL") or f"http://127.0.0.1:{os.getenv('PORT', '3000')}"
+demo_chat_daily_limit = int(os.getenv("DEMO_CHAT_DAILY_LIMIT", "50"))
 
 client = OpenAI(api_key=api_key, base_url=base_url)
 
@@ -76,6 +77,7 @@ SCOPE_CLASSIFIER_PROMPT = read_text("prompts/scope-classifier.md")
 OUT_OF_SCOPE_REPLY = read_text("messages/out-of-scope.md")
 INSURANCE_CATEGORIES = read_json("insurance-categories.json")
 APP_TOOLS = read_json("app-tools.json")
+chat_usage: dict[str, dict[str, int | str]] = {}
 
 
 def normalize_text(text: str) -> str:
@@ -243,6 +245,41 @@ def sanitize_messages(messages: list[ChatMessage]) -> list[dict[str, str]]:
     ]
 
 
+def demo_usage_key(request: Request) -> str:
+    demo_user_id = request.headers.get("x-demo-user-id")
+    if demo_user_id:
+        safe_id = re.sub(r"[^a-zA-Z0-9_-]", "", demo_user_id)[:80]
+        if safe_id:
+            return f"demo:{safe_id}"
+
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        return f"ip:{forwarded_for.split(',')[0].strip()}"
+
+    client_host = request.client.host if request.client else "unknown"
+    return f"ip:{client_host}"
+
+
+def enforce_demo_chat_limit(request: Request) -> None:
+    if demo_chat_daily_limit <= 0:
+        return
+
+    today = datetime.now(timezone.utc).date().isoformat()
+    key = demo_usage_key(request)
+    usage = chat_usage.get(key)
+    if not usage or usage.get("date") != today:
+        chat_usage[key] = {"date": today, "count": 1}
+        return
+
+    count = int(usage.get("count", 0))
+    if count >= demo_chat_daily_limit:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Demo limit dosegnut: {demo_chat_daily_limit} chat poruka danas. Pokusajte ponovno sutra.",
+        )
+    usage["count"] = count + 1
+
+
 def is_allowed_conversation(messages: list[dict[str, str]]) -> bool:
     latest = next((message for message in reversed(messages) if message["role"] == "user"), None)
     if not latest:
@@ -316,13 +353,14 @@ def admin_rag_search(q: str) -> dict[str, Any]:
 
 
 @app.post("/chat")
-def chat(payload: ChatRequest) -> dict[str, Any]:
+def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
     if not api_key:
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY or OPENROUTER_API_KEY is not configured.")
 
     messages = sanitize_messages(payload.messages)
     if not messages:
         raise HTTPException(status_code=400, detail="Send at least one message.")
+    enforce_demo_chat_limit(request)
     if not is_allowed_conversation(messages):
         return {"reply": OUT_OF_SCOPE_REPLY}
 
