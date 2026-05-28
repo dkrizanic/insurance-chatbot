@@ -2,7 +2,7 @@ import "dotenv/config";
 import express from "express";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { createProxyMiddleware } from "http-proxy-middleware";
+import { createProxyMiddleware, fixRequestBody } from "http-proxy-middleware";
 
 type AppRecord = {
   id: string;
@@ -17,13 +17,12 @@ type RecordsPayload = {
 };
 
 const app = express();
+const jsonParser = express.json();
 const port = Number(process.env.PORT || 3000);
 const aiServiceUrl = process.env.AI_SERVICE_URL || "http://localhost:8000";
 const distDir = path.join(process.cwd(), "frontend", "dist");
 const dataDir = path.join(process.cwd(), "data");
 const requestsFile = path.join(dataDir, "requests.json");
-
-app.use(express.json());
 
 function makeRecord(prefix: "complaint" | "policy", payload: Record<string, unknown>): AppRecord {
   return {
@@ -56,7 +55,7 @@ app.get("/api/requests", async (_req, res) => {
   res.json(await readRequests());
 });
 
-app.post("/api/complaints", async (req, res) => {
+app.post("/api/complaints", jsonParser, async (req, res) => {
   const payload = req.body as Record<string, unknown>;
   if (!payload || typeof payload !== "object") {
     return res.status(400).json({ error: "Invalid complaint payload." });
@@ -71,7 +70,7 @@ app.post("/api/complaints", async (req, res) => {
   res.status(201).json({ complaint });
 });
 
-app.post("/api/policies", async (req, res) => {
+app.post("/api/policies", jsonParser, async (req, res) => {
   const payload = req.body as Record<string, unknown>;
   if (!payload || typeof payload !== "object") {
     return res.status(400).json({ error: "Invalid policy payload." });
@@ -92,6 +91,9 @@ app.use(
     target: aiServiceUrl,
     changeOrigin: true,
     pathRewrite: { "^/api": "" },
+    on: {
+      proxyReq: fixRequestBody,
+    },
   }),
 );
 
